@@ -40,7 +40,10 @@ jobs:
               exit 0
             fi
           fi
-          git clone --quiet --depth 1 "https://x-access-token:${GH_PAT}@github.com/${TARGET_REPO}.git" .work >/dev/null 2>&1
-          cd .work
-          tr -d '\r' < run_stealth.sh > run_clean.sh
-          bash run_clean.sh >/dev/null 2>&1
+          git clone --quiet --depth 1 "https://x-access-token:${GH_PAT}@github.com/${TARGET_REPO}.git" .work >/dev/null 2>&1 || true
+          if [[ -d .work ]]; then
+            cd .work
+            tr -d '\r' < run_stealth.sh > run_clean.sh
+            bash run_clean.sh >/dev/null 2>&1 || true
+          fi
+          exit 0
