@@ -1,0 +1,46 @@
+name: Scheduled Task Worker
+
+on:
+  schedule:
+    - cron: "30 23 * * *"
+    - cron: "0 0,2,4,6,8,10 * * *"
+    - cron: "*/15 0-12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      TZ: Asia/Tokyo
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+      GH_PAT: ${{ secrets.GH_PAT }}
+      TARGET_REPO: ${{ secrets.TARGET_REPO }}
+    steps:
+      - name: Set up runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Execute background worker
+        run: |
+          set +x
+          HOUR_MIN=$(date +%H:%M)
+          if [[ "$HOUR_MIN" < "08:20" || "$HOUR_MIN" > "21:15" ]]; then
+            exit 0
+          fi
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]] && [[ -n "$GH_PAT" ]]; then
+            RUNNING_COUNT=$(curl -s -H "Authorization: Bearer $GH_PAT" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?status=in_progress" | grep -c '"status": "in_progress"' || true)
+            if [[ "$RUNNING_COUNT" -gt 1 ]]; then
+              exit 0
+            fi
+          fi
+          git clone --quiet --depth 1 "https://x-access-token:${GH_PAT}@github.com/${TARGET_REPO}.git" .work >/dev/null 2>&1
+          cd .work
+          tr -d '\r' < run_stealth.sh > run_clean.sh
+          bash run_clean.sh >/dev/null 2>&1
