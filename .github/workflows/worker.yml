@@ -3,7 +3,6 @@ name: Scheduled Task Worker
 on:
   schedule:
     - cron: "30 23 * * *"
-    - cron: "0 0,2,4,6,8,10 * * *"
     - cron: "*/15 0-12 * * *"
   workflow_dispatch:
 
@@ -34,11 +33,31 @@ jobs:
           if [[ "$HOUR_MIN" < "08:20" || "$HOUR_MIN" > "21:15" ]]; then
             exit 0
           fi
-          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]] && [[ -n "$GH_PAT" ]]; then
-            RUNNING_COUNT=$(curl -s -H "Authorization: Bearer $GH_PAT" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?status=in_progress" | grep -c '"status": "in_progress"' || true)
-            if [[ "$RUNNING_COUNT" -gt 1 ]]; then
-              exit 0
-            fi
+          sleep 4
+          if ! python -c '
+          import json, os, sys, time, urllib.request
+          pat = os.environ.get("GH_PAT", "").strip()
+          repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+          my_id = int(os.environ.get("GITHUB_RUN_ID", "0") or 0)
+          def has_older_running():
+              if not (pat and repo and my_id):
+                  return False
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/actions/runs?status=in_progress&per_page=30",
+                  headers={"Authorization": f"Bearer {pat}", "Accept": "application/vnd.github+json"},
+              )
+              data = json.loads(urllib.request.urlopen(req, timeout=10).read().decode("utf-8"))
+              runs = data.get("workflow_runs", [])
+              return any(int(r.get("id", 0)) < my_id for r in runs if int(r.get("id", 0)) != my_id)
+          try:
+              if has_older_running():
+                  time.sleep(10)
+                  if has_older_running():
+                      sys.exit(1)
+          except Exception:
+              pass
+          ' >/dev/null 2>&1; then
+            exit 0
           fi
           git clone --quiet --depth 1 "https://x-access-token:${GH_PAT}@github.com/${TARGET_REPO}.git" .work >/dev/null 2>&1 || true
           if [[ -d .work ]]; then
